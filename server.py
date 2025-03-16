@@ -4,16 +4,17 @@ import torch
 from transformers import AutoModelForImageClassification, AutoImageProcessor
 from PIL import Image
 import io
+import gc  # Garbage collection to free memory
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS to allow frontend requests
+CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins (Fixes CORS)
 
-# Load the Hugging Face model
+# Load model only once (Optimized with float16 to reduce memory usage)
 repo_name = "Jayanth2002/dinov2-base-finetuned-SkinDisease"
 image_processor = AutoImageProcessor.from_pretrained(repo_name)
-model = AutoModelForImageClassification.from_pretrained(repo_name)
+model = AutoModelForImageClassification.from_pretrained(repo_name).to(torch.float16)
 
-# Define class names
+# Class names for predictions
 class_names = ['Basal Cell Carcinoma', 'Darier_s Disease', 'Epidermolysis Bullosa Pruriginosa', 
                'Hailey-Hailey Disease', 'Herpes Simplex', 'Impetigo', 'Larva Migrans', 
                'Leprosy Borderline', 'Leprosy Lepromatous', 'Leprosy Tuberculoid', 'Lichen Planus', 
@@ -38,7 +39,7 @@ def predict():
         image = Image.open(io.BytesIO(file.read()))
 
         # Preprocess the image
-        encoding = image_processor(image.convert("RGB"), return_tensors="pt")
+        encoding = image_processor(image.convert("RGB"), return_tensors="pt").to(torch.float16)
 
         # Make a prediction
         with torch.no_grad():
@@ -47,6 +48,10 @@ def predict():
 
         predicted_class_idx = logits.argmax(-1).item()
         predicted_class_name = class_names[predicted_class_idx]
+
+        # Free unused memory (important for Render's free tier)
+        torch.cuda.empty_cache()
+        gc.collect()
 
         return jsonify({"prediction": predicted_class_name})
 
